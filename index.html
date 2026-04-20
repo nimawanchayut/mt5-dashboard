@@ -937,19 +937,11 @@ function renderAccordion() {
           </div>
           <div>
             <div class="card-label">DD Today</div>
-            <div class="mono text-sm" style="color:${cDD}">${
-              todayMaxDD === 0
-                ? '<span style="color:var(--neon-green)">—</span>'
-                : fmt(todayMaxDD) + ' <span style="color:var(--text-secondary);font-size:0.7rem">('+fmtPct(todayMaxDDpct)+')</span>'
-            }</div>
+            <div class="mono text-sm" style="color:${cDD}">${todayMaxDD === 0 ? '<span style="color:var(--neon-green)">—</span>' : fmt(todayMaxDD)}</div>
           </div>
           <div>
-            <div class="card-label">Max DD (USD)</div>
-            <div class="mono text-sm" style="color:var(--neon-red)">-${fmt(equity*(stats.maxDD||0)/100)}</div>
-          </div>
-          <div>
-            <div class="card-label">Max DD %</div>
-            <div class="mono text-sm" style="color:var(--neon-red)">${fmtPct(stats.maxDD||0)}</div>
+            <div class="card-label">DD Today %</div>
+            <div class="mono text-sm" style="color:${cDD}">${todayMaxDD === 0 ? '<span style="color:var(--neon-green)">—</span>' : fmtPct(todayMaxDDpct)}</div>
           </div>
         </div>
         <!-- Copy Link -->

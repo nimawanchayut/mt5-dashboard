@@ -371,6 +371,7 @@
         <div id="clock" class="mono text-xs" style="color:var(--neon-cyan)">—</div>
       </div>
       <button onclick="refreshAll()" class="copy-link-btn">↺ REFRESH</button>
+      <button onclick="toggleUnit()" id="unit-btn" class="copy-link-btn" style="border-color:rgba(255,221,0,0.5);color:var(--neon-yellow);min-width:90px">USC → USD</button>
     </div>
   </div>
 </header>
@@ -503,10 +504,12 @@
         <div class="flex items-center gap-2">
           <span class="text-xs uppercase tracking-widest" style="color:var(--text-secondary)">From</span>
           <input type="date" id="date-from" class="date-input" onchange="filterGrid()"/>
+
         </div>
         <div class="flex items-center gap-2">
           <span class="text-xs uppercase tracking-widest" style="color:var(--text-secondary)">To</span>
           <input type="date" id="date-to" class="date-input" onchange="filterGrid()"/>
+
         </div>
         <div class="flex gap-2">
           <button onclick="setRange('today')" class="copy-link-btn text-xs">Today</button>
@@ -556,15 +559,15 @@
 <script>
 // ═══════════════════════════════════════════════
 // 🔥 FIREBASE CONFIGURATION — FILL IN YOUR DETAILS
+// ═══════════════════════════════════════════════
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDxRrMOGjRMpvK-Rzz66-u01nUy2BvT5Ys",
-  authDomain: "ai-affiliate-bot-488110.firebaseapp.com",
-  databaseURL: "https://ai-affiliate-bot-488110-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "ai-affiliate-bot-488110",
-  storageBucket: "ai-affiliate-bot-488110.firebasestorage.app",
-  messagingSenderId: "381914640045",
-  appId: "1:381914640045:web:45ec915156a1a1e4f16024",
-  measurementId: "G-20JWKBL69K"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 
 // ═══════════════════════════════════════════════
@@ -581,6 +584,7 @@ let allPortfolios = {};
 let chartInstances = {};
 let gridData = [];
 let sortField = 'name', sortDir = 1;
+let displayUnit = 'USC'; // 'USC' = ค่าดิบ, 'USD' = หาร 100
 
 // ── Init Firebase
 function initFirebase() {
@@ -917,10 +921,11 @@ function renderChart(portId) {
   const chartEl = document.getElementById('chart-'+portId);
   if(!chartEl || chartEl._chartDone) return;
   chartEl._chartDone = true;
-  const series = curve.map(p=>({ x: p.time, y: p.equity }));
+  const series = curve.map(p=>({ x: p.time, y: toUnit(p.equity) }));
   const isUp = series.length>=2 && series[series.length-1].y >= series[0].y;
+  const unitLabel = displayUnit === 'USD' ? '$' : '¢';
   const opts = {
-    series: [{ name: 'Equity', data: series }],
+    series: [{ name: `Equity (${displayUnit})`, data: series }],
     chart: {
       type: 'area', height: 220,
       background: 'transparent',
@@ -939,12 +944,12 @@ function renderChart(portId) {
       }
     },
     xaxis: { type: 'datetime', labels: { style: { colors: '#6a90b8', fontFamily: 'Share Tech Mono' } }, axisBorder:{show:false}, axisTicks:{show:false} },
-    yaxis: { labels: { style: { colors: '#6a90b8', fontFamily: 'Share Tech Mono' }, formatter: v=>'$'+v.toLocaleString() } },
+    yaxis: { labels: { style: { colors: '#6a90b8', fontFamily: 'Share Tech Mono' }, formatter: v=>unitLabel+v.toLocaleString() } },
     grid: { borderColor: '#1a2a40', strokeDashArray: 4 },
     tooltip: {
       theme: 'dark',
       x: { format: 'dd MMM yyyy' },
-      y: { formatter: v=>'$'+v.toLocaleString() }
+      y: { formatter: v=>unitLabel+v.toLocaleString() }
     },
     theme: { mode: 'dark' }
   };
@@ -977,8 +982,8 @@ function filterGrid() {
   const from = document.getElementById('date-from').value;
   const to = document.getElementById('date-to').value;
   const search = document.getElementById('grid-search').value.toLowerCase();
-  const fromMs = from ? new Date(from).getTime() : 0;
-  const toMs = to ? new Date(to).getTime()+86399999 : Date.now();
+  const fromMs = from ? (parseLocalDate(from) ?? 0) : 0;
+  const toMs   = to   ? ((parseLocalDate(to) ?? Date.now()) + 86399999) : Date.now();
 
   let rows = gridData.filter(p => {
     if(search && !p.name.toLowerCase().includes(search) && !p.id.toLowerCase().includes(search)) return false;
@@ -1064,33 +1069,98 @@ function sortGrid(field) {
   filterGrid();
 }
 
+// แปลง "YYYY-MM-DD" → ms local timezone (ไม่ใช่ UTC)
+function parseLocalDate(str) {
+  if(!str) return null;
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m-1, d).getTime();
+}
+
+// แปลง Date object → "YYYY-MM-DD" สำหรับใส่ใน input[type=date]
+function toInputDate(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth()+1).padStart(2,'0');
+  const d = String(dateObj.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+
+// แปลง Date object → "DD/MM/YYYY" (ไม่ได้ใช้แล้ว แต่เก็บไว้)
+function toDisplayDate(dateObj) {
+  const d = String(dateObj.getDate()).padStart(2,'0');
+  const m = String(dateObj.getMonth()+1).padStart(2,'0');
+  return `${d}/${m}/${dateObj.getFullYear()}`;
+}
+
 function setRange(r) {
   const now = new Date();
-  const toDate = now.toISOString().split('T')[0];
-  let fromDate;
-  if(r==='today') fromDate=toDate;
-  else if(r==='yday') {
-    const y=new Date(now-86400000); const yd=y.toISOString().split('T')[0];
-    fromDate=yd; document.getElementById('date-from').value=yd;
-    document.getElementById('date-to').value=yd; filterGrid(); return;
+  const toDate = toInputDate(now);
+  if(r==='today') {
+    document.getElementById('date-from').value = toDate;
+    document.getElementById('date-to').value = toDate;
+  } else if(r==='yday') {
+    const yd = toInputDate(new Date(now-86400000));
+    document.getElementById('date-from').value = yd;
+    document.getElementById('date-to').value = yd;
+  } else if(r==='7d') {
+    document.getElementById('date-from').value = toInputDate(new Date(now-7*86400000));
+    document.getElementById('date-to').value = toDate;
+  } else if(r==='30d') {
+    document.getElementById('date-from').value = toInputDate(new Date(now-30*86400000));
+    document.getElementById('date-to').value = toDate;
+  } else {
+    document.getElementById('date-from').value = '';
+    document.getElementById('date-to').value = '';
   }
-  else if(r==='7d') { const d=new Date(now-7*86400000); fromDate=d.toISOString().split('T')[0]; }
-  else if(r==='30d') { const d=new Date(now-30*86400000); fromDate=d.toISOString().split('T')[0]; }
-  else { fromDate=''; document.getElementById('date-to').value=''; }
-  document.getElementById('date-from').value = fromDate||'';
-  if(r!=='all') document.getElementById('date-to').value = toDate;
   filterGrid();
 }
 
 // ═══════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════
-function fmt(n) {
-  return '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+// แปลงค่าตาม unit ปัจจุบัน (USC = ค่าดิบ, USD = หาร 100)
+function toUnit(n) {
+  return displayUnit === 'USD' ? Number(n||0) / 100 : Number(n||0);
 }
+
+function fmt(n) {
+  const symbol = displayUnit === 'USD' ? '$' : '¢';
+  return symbol + toUnit(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
 function fmtPct(n) { return Number(n||0).toFixed(2)+'%'; }
 function setText(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
 function setBar(id, pct) { const el=document.getElementById(id); if(el) el.style.width=Math.min(pct,100)+'%'; }
+
+function toggleUnit() {
+  displayUnit = displayUnit === 'USC' ? 'USD' : 'USC';
+  const btn = document.getElementById('unit-btn');
+  if(displayUnit === 'USD') {
+    btn.textContent = 'USD → USC';
+    btn.style.borderColor = 'rgba(0,255,136,0.5)';
+    btn.style.color = 'var(--neon-green)';
+    showToast('💱 แสดงเป็น USD (หาร 100)');
+  } else {
+    btn.textContent = 'USC → USD';
+    btn.style.borderColor = 'rgba(255,221,0,0.5)';
+    btn.style.color = 'var(--neon-yellow)';
+    showToast('💱 แสดงเป็น USC (ค่าดิบ)');
+  }
+  // re-render ทุก section
+  renderAll();
+  // destroy charts เพื่อให้ re-render ค่า equity curve ใหม่
+  Object.keys(chartInstances).forEach(id => {
+    chartInstances[id].destroy();
+    delete chartInstances[id];
+    const el = document.getElementById('chart-'+id);
+    if(el) el._chartDone = false;
+  });
+  // re-render chart ที่กำลัง expand อยู่
+  document.querySelectorAll('.acc-item.active').forEach(el => {
+    const id = el.id.replace('acc-','');
+    renderChart(id);
+  });
+}
 
 function copyLink(portId) {
   const url = `${location.origin}${location.pathname}?port=${portId}`;
@@ -1121,10 +1191,9 @@ setInterval(()=>renderVelocity(), 5000);
 // ── Boot
 window.addEventListener('DOMContentLoaded', ()=>{
   setText('clock', new Date().toLocaleTimeString());
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('date-to').value = today;
-  const from30 = new Date(Date.now()-30*86400000).toISOString().split('T')[0];
-  document.getElementById('date-from').value = from30;
+  const today = new Date();
+  document.getElementById('date-to').value = toInputDate(today);
+  document.getElementById('date-from').value = toInputDate(new Date(Date.now()-30*86400000));
   initFirebase();
 
   // Deep link — scroll to port

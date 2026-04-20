@@ -845,6 +845,9 @@ function renderAccordion() {
     const nameParts = fullName.split('_');
     const portLabel = nameParts[0] || fullName;   // Port1
     const portCode  = nameParts[1] || fullName;   // 97039829
+    const floatVal = (stats.equity||0) - (stats.balance||0);
+    const floatColor = floatVal >= 0 ? 'var(--neon-green)' : 'var(--neon-red)';
+    const floatSign = floatVal >= 0 ? '+' : '';
     item.innerHTML = `
       <div class="acc-header" onclick="toggleAcc('${id}')">
         <svg class="acc-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
@@ -865,8 +868,8 @@ function renderAccordion() {
             <div class="mono text-sm" style="color:${profitColor}">${fmt(s.totalProfit)}</div>
           </div>
           <div>
-            <div class="card-label">Growth</div>
-            <div class="mono text-sm" style="color:${s.growth>=0?'var(--neon-green)':'var(--neon-red)'}">${fmtPct(s.growth)}</div>
+            <div class="card-label">Float</div>
+            <div class="mono text-sm" style="color:${floatColor}">${floatSign+fmt(floatVal)}</div>
           </div>
           <div>
             <div class="card-label">Max DD (USD)</div>

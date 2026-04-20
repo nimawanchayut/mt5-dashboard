@@ -735,9 +735,12 @@ function calcPortStats(port) {
   };
 }
 
+// MT5 server ช้ากว่าไทย 4 ชม — ใช้ค่านี้ทุกที่ที่ filter ด้วย d.time
+const MT5_SERVER_OFFSET_MS = 4 * 3600000;
+
 // Velocity — profit in last N ms
 function calcVelocity(ms) {
-  const cutoff = Date.now() - ms;
+  const cutoff = Date.now() - ms - MT5_SERVER_OFFSET_MS;
   let profit = 0, count = 0;
   Object.values(allPortfolios).forEach(port => {
     Object.values(port.deals||{}).forEach(d => {
@@ -752,7 +755,17 @@ function calcVelocity(ms) {
 
 function calcToday() {
   const midnight = new Date(); midnight.setHours(0,0,0,0);
-  return calcVelocity(Date.now() - midnight.getTime());
+  const cutoff = midnight.getTime() - MT5_SERVER_OFFSET_MS;
+  let profit = 0, count = 0;
+  Object.values(allPortfolios).forEach(port => {
+    Object.values(port.deals||{}).forEach(d => {
+      if(d.type !== 'DEAL_TYPE_BALANCE' && d.time >= cutoff) {
+        profit += (d.profit||0)+(d.swap||0)+(d.commission||0);
+        count++;
+      }
+    });
+  });
+  return { profit: Math.round(profit*100)/100, count };
 }
 
 // ═══════════════════════════════════════════════
@@ -831,39 +844,73 @@ function renderAccordion() {
     container.innerHTML = '<p class="text-center py-8" style="color:var(--text-secondary)">No portfolio data found in Firebase.</p>';
     return;
   }
+
+  // ── เวลาเที่ยงคืนวันนี้ (local timezone) เป็น ms
+  const todayStart = (() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  })();
+
   portIds.forEach(id => {
-    const port = allPortfolios[id];
-    const info = port.info || {};
-    const stats = port.stats || {};
-    const s = calcPortStats(port);
+    const port    = allPortfolios[id];
+    const info    = port.info  || {};
+    const stats   = port.stats || {};
+    const s       = calcPortStats(port);
+    const deals   = Object.values(port.deals || {});
+
     const item = document.createElement('div');
     item.className = 'acc-item';
     item.id = 'acc-' + id;
-    const statusClass = info.status==='live'?'status-live':info.status==='error'?'status-error':'status-idle';
-    const profitColor = s.totalProfit>=0?'var(--neon-green)':'var(--neon-red)';
-    const fullName = info.name || id;
+
+    const statusClass = info.status==='live' ? 'status-live'
+                      : info.status==='error' ? 'status-error' : 'status-idle';
+    const fullName  = info.name || id;
     const nameParts = fullName.split('_');
-    const portLabel = nameParts[0] || fullName;   // Port1
-    const portCode  = nameParts[1] || fullName;   // 97039829
-    const floatVal = (stats.equity||0) - (stats.balance||0);
-    const floatColor = floatVal >= 0 ? 'var(--neon-green)' : 'var(--neon-red)';
-    const floatSign = floatVal >= 0 ? '+' : '';
+    const portLabel = nameParts[0] || fullName;  // Port1
+    const portCode  = nameParts[1] || fullName;  // 97039829
 
-    // Profit วันนี้
-    const midnight = new Date(); midnight.setHours(0,0,0,0);
+    // ── 1. Equity (realtime จาก EA)
+    const equity  = stats.equity  || 0;
+    const balance = stats.balance || 0;
+
+    // ── 2. Today Profit — เฉพาะ TRADE ที่ปิดวันนี้เท่านั้น
+    //    MT5 server ช้ากว่าไทย 4 ชม (server=UTC+3, ไทย=UTC+7)
+    //    deals timestamp จึงช้ากว่าเวลาจริง 4 ชม
+    //    ต้องเลื่อน todayStart ย้อนกลับ 4 ชม เพื่อ match กับ timestamp ของ deals
+    const SERVER_OFFSET_MS  = MT5_SERVER_OFFSET_MS;
+    const todayStartServer  = todayStart - SERVER_OFFSET_MS;
+
     let todayProfit = 0;
-    Object.values(port.deals||{}).forEach(d => {
-      if(d.type !== 'DEAL_TYPE_BALANCE' && d.time >= midnight.getTime()) {
-        todayProfit += (d.profit||0) + (d.swap||0) + (d.commission||0);
-      }
+    deals.forEach(d => {
+      if(d.type === 'DEAL_TYPE_BALANCE') return;   // ข้ามรายการฝาก/ถอน
+      if(!d.time || d.time < todayStartServer) return; // ข้ามวันก่อน
+      // กำไรจริง = profit + swap + commission
+      todayProfit += (d.profit || 0) + (d.swap || 0) + (d.commission || 0);
     });
-    const todayColor = todayProfit >= 0 ? 'var(--neon-green)' : 'var(--neon-red)';
-    const todaySign = todayProfit >= 0 ? '+' : '';
 
-    // DD วันนี้ = float ติดลบที่แย่สุดของวัน (EA ส่งมาใน stats.todayMaxDD)
-    const todayMaxDD = stats.todayMaxDD || 0;  // ค่าติดลบ เช่น -150.50
-    const todayMaxDDpct = (stats.balance||0) > 0 ? (Math.abs(todayMaxDD) / (stats.balance||0)) * 100 : 0;
-    const ddNowColor = todayMaxDD === 0 ? 'var(--neon-green)' : todayMaxDDpct < 5 ? 'var(--neon-yellow)' : todayMaxDDpct < 15 ? 'var(--neon-orange)' : 'var(--neon-red)';
+    // ── 3. Float (Open PnL) = Equity - Balance (realtime จาก EA)
+    const floatVal = equity - balance;
+
+    // ── 4. DD Today = todayMaxDD จาก EA (float ติดลบที่แย่สุดวันนี้)
+    //    EA track ไว้ใน stats.todayMaxDD เป็นค่าติดลบ เช่น -500
+    const todayMaxDD    = stats.todayMaxDD || 0;
+
+    // ── 5. DD Today % = |todayMaxDD| / balance * 100
+    //    ใช้ balance ปัจจุบัน (ถ้ามี balanceStart ส่งมาจะแม่นกว่า)
+    const todayMaxDDpct = balance > 0 ? (Math.abs(todayMaxDD) / balance) * 100 : 0;
+
+    // ── สีแต่ละค่า
+    const cEq      = 'var(--neon-cyan)';
+    const cToday   = todayProfit >= 0 ? 'var(--neon-green)' : 'var(--neon-red)';
+    const cFloat   = floatVal   >= 0 ? 'var(--neon-green)' : 'var(--neon-red)';
+    const cDD      = todayMaxDD === 0 ? 'var(--neon-green)'
+                   : todayMaxDDpct <  5 ? 'var(--neon-yellow)'
+                   : todayMaxDDpct < 15 ? 'var(--neon-orange)'
+                   : 'var(--neon-red)';
+
+    // ── helper sign
+    const sign = v => v > 0 ? '+' : '';
 
     item.innerHTML = `
       <div class="acc-header" onclick="toggleAcc('${id}')">
@@ -878,23 +925,27 @@ function renderAccordion() {
         <div class="hidden md:flex items-center gap-6 text-right">
           <div>
             <div class="card-label">Equity</div>
-            <div class="mono text-sm" style="color:var(--neon-cyan)">${fmt(stats.equity||0)}</div>
+            <div class="mono text-sm" style="color:${cEq}">${fmt(equity)}</div>
           </div>
           <div>
             <div class="card-label">Today Profit</div>
-            <div class="mono text-sm" style="color:${todayColor}">${todaySign+fmt(todayProfit)}</div>
+            <div class="mono text-sm" style="color:${cToday}">${sign(todayProfit)+fmt(todayProfit)}</div>
           </div>
           <div>
             <div class="card-label">Float</div>
-            <div class="mono text-sm" style="color:${floatColor}">${floatSign+fmt(floatVal)}</div>
+            <div class="mono text-sm" style="color:${cFloat}">${sign(floatVal)+fmt(floatVal)}</div>
           </div>
           <div>
             <div class="card-label">DD Today</div>
-            <div class="mono text-sm" style="color:${ddNowColor}">${todayMaxDD === 0 ? '—' : fmt(todayMaxDD)+' ('+fmtPct(todayMaxDDpct)+')'}</div>
+            <div class="mono text-sm" style="color:${cDD}">${
+              todayMaxDD === 0
+                ? '<span style="color:var(--neon-green)">—</span>'
+                : fmt(todayMaxDD) + ' <span style="color:var(--text-secondary);font-size:0.7rem">('+fmtPct(todayMaxDDpct)+')</span>'
+            }</div>
           </div>
           <div>
             <div class="card-label">Max DD (USD)</div>
-            <div class="mono text-sm" style="color:var(--neon-red)">-${fmt((stats.equity||0)*(stats.maxDD||0)/100)}</div>
+            <div class="mono text-sm" style="color:var(--neon-red)">-${fmt(equity*(stats.maxDD||0)/100)}</div>
           </div>
           <div>
             <div class="card-label">Max DD %</div>
@@ -1227,7 +1278,7 @@ function showToast(msg) {
 }
 
 function updateLastSync() {
-  setText('last-sync', new Date().toLocaleTimeString());
+  setText('last-sync', new Date().toLocaleTimeString('en-GB', {hour12: false}));
 }
 
 function refreshAll() {
@@ -1236,14 +1287,14 @@ function refreshAll() {
   showToast('↺ Data refreshed');
 }
 
-// Clock
-setInterval(()=>{ setText('clock', new Date().toLocaleTimeString()); }, 1000);
+// Clock — 24hr
+setInterval(()=>{ setText('clock', new Date().toLocaleTimeString('en-GB', {hour12: false})); }, 1000);
 // Velocity real-time update
 setInterval(()=>renderVelocity(), 5000);
 
 // ── Boot
 window.addEventListener('DOMContentLoaded', ()=>{
-  setText('clock', new Date().toLocaleTimeString());
+  setText('clock', new Date().toLocaleTimeString('en-GB', {hour12: false}));
   const today = new Date();
   document.getElementById('date-to').value = toInputDate(today);
   document.getElementById('date-from').value = toInputDate(new Date(Date.now()-30*86400000));

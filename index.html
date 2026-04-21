@@ -735,13 +735,14 @@ function calcPortStats(port) {
   };
 }
 
-// EA ส่ง timestamp เป็น server time UTC+3 (ยืนยันจาก console log)
-// ไทย = UTC+7, ต่างกัน 4 ชั่วโมง
-const MT5_SERVER_OFFSET_MS = 4 * 3600000;
+// EA ส่ง timestamp เป็น TimeGMT() = UTC+0
+// ไทย = UTC+7 → offset = 7 ชั่วโมง
+const MT5_SERVER_OFFSET_MS = 7 * 3600000;
 
 // Velocity — profit in last N ms
+// d.time = UTC+0, Date.now() = UTC+0 → เทียบตรงๆ
 function calcVelocity(ms) {
-  const cutoff = Date.now() - ms - MT5_SERVER_OFFSET_MS;
+  const cutoff = Date.now() - ms;
   let profit = 0, count = 0;
   Object.values(allPortfolios).forEach(port => {
     Object.values(port.deals||{}).forEach(d => {
@@ -755,14 +756,14 @@ function calcVelocity(ms) {
 }
 
 function calcToday() {
-  // เที่ยงคืนไทย แปลงเป็น server time UTC+3 (ลบ 4 ชม)
+  // เที่ยงคืนไทย = UTC 17:00 เมื่อวาน = midnight.getTime() - 7h
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
-  const cutoffServer = midnight.getTime() - MT5_SERVER_OFFSET_MS;
+  const cutoffUTC = midnight.getTime() - MT5_SERVER_OFFSET_MS;
   let profit = 0, count = 0;
   Object.values(allPortfolios).forEach(port => {
     Object.values(port.deals||{}).forEach(d => {
-      if(d.type !== 'DEAL_TYPE_BALANCE' && d.time >= cutoffServer) {
+      if(d.type !== 'DEAL_TYPE_BALANCE' && d.time >= cutoffUTC) {
         profit += (d.profit||0)+(d.swap||0)+(d.commission||0);
         count++;
       }
@@ -877,7 +878,7 @@ function renderAccordion() {
     const equity  = stats.equity  || 0;
     const balance = stats.balance || 0;
 
-    // deals เป็น UTC+3 (server time), ไทย UTC+7 → ต่างกัน 4 ชม
+    // deals เป็น UTC+0 (TimeGMT), เที่ยงคืนไทย = UTC-7h
     const todayStartServer = todayStart - MT5_SERVER_OFFSET_MS;
 
     let todayProfit = 0;
